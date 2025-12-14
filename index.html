@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Hand-Controlled Particles - BD Flag</title>
+    <title>Interactive Particles - Optimized</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
@@ -32,7 +32,7 @@
     <div id="canvas-container"></div>
     
     <div id="ui">
-        <h1>Particle Morph</h1>
+        <h1>Particle Morph (Lite)</h1>
         <p>🖐 <b>Move Hand X/Y:</b> Change Color & Rotation</p>
         <p>🤏 <b>Pinch (Thumb+Index):</b> Expand/Contract</p>
         <p>✌️ <b>Peace Sign:</b> Switch Shape</p>
@@ -55,7 +55,10 @@
         document.getElementById('canvas-container').appendChild(renderer.domElement);
 
         // --- 2. Particle System Logic ---
-        const PARTICLE_COUNT = 8500; // Increased slightly for better flag density
+        
+        // UPDATED: Reduced particle count to prevent phone lag
+        const PARTICLE_COUNT = 2500; 
+
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(PARTICLE_COUNT * 3);
         const colors = new Float32Array(PARTICLE_COUNT * 3);
@@ -66,7 +69,6 @@
         
         // Store specific target colors (used for the flag)
         const targetColors = new Float32Array(PARTICLE_COUNT * 3);
-        const useTargetColor = new Array(PARTICLE_COUNT).fill(false); // Helper to toggle modes
 
         const colorObj = new THREE.Color();
 
@@ -84,7 +86,7 @@
         geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
         const material = new THREE.PointsMaterial({
-            size: 0.18,
+            size: 0.28, // UPDATED: Increased size slightly so 2500 particles are still visible
             vertexColors: true,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
@@ -133,7 +135,7 @@
             }
         }
 
-        // --- NEW: Bangladesh Flag Shape ---
+        // --- Bangladesh Flag Shape ---
         function getFlagPoint(i) {
             // Flag Aspect Ratio 10:6
             const width = 22;
@@ -150,7 +152,7 @@
 
         const shapes = [
             { name: "Sphere", func: getSpherePoint },
-            { name: "Bangladesh Flag", func: getFlagPoint }, // Added here
+            { name: "Bangladesh Flag", func: getFlagPoint },
             { name: "Heart", func: getHeartPoint },
             { name: "Saturn", func: getSaturnPoint },
         ];
@@ -172,8 +174,7 @@
                 // Pre-calculate colors if we are in Flag Mode
                 if (isFlagMode) {
                     // Bangladesh Flag Logic
-                    // Red Circle Offset slightly left: (x + offset)^2 + y^2 < r^2
-                    // Radius roughly 20% of width? Let's say radius 4.5
+                    // Radius adjusted for visual balance
                     const offsetX = 1.5; 
                     const dist = Math.sqrt(Math.pow(p.x + offsetX, 2) + Math.pow(p.y, 2));
                     
