@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Hand-Controlled Particles - BD Flag</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        #video-element { position: absolute; top: 10px; left: 10px; width: 160px; height: 120px; z-index: 2; transform: scaleX(-1); border: 2px solid #333; opacity: 0.7; border-radius: 8px; }
+        #ui { position: absolute; bottom: 20px; left: 20px; color: white; z-index: 3; pointer-events: none; }
+        h1 { font-size: 1.2rem; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 2px; }
+        p { font-size: 0.9rem; margin: 2px 0; color: #aaa; }
+        .highlight { color: #00ffcc; font-weight: bold; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; z-index: 10; font-size: 2rem; transition: opacity 0.5s; }
+    </style>
+    <!-- Import Maps for Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "@mediapipe/hands": "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js",
+                "@mediapipe/camera_utils": "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loading">Loading AI Models...</div>
+    <video id="video-element" playsinline></video>
+    <div id="canvas-container"></div>
+    
+    <div id="ui">
+        <h1>Particle Morph</h1>
+        <p>🖐 <b>Move Hand X/Y:</b> Change Color & Rotation</p>
+        <p>🤏 <b>Pinch (Thumb+Index):</b> Expand/Contract</p>
+        <p>✌️ <b>Peace Sign:</b> Switch Shape</p>
+        <p>Current Shape: <span id="shape-name" class="highlight">Sphere</span></p>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        
+        // --- 1. Three.js Setup ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.002);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 30;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // --- 2. Particle System Logic ---
+        const PARTICLE_COUNT = 8500; // Increased slightly for better flag density
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const colors = new Float32Array(PARTICLE_COUNT * 3);
+        
+        // Store target positions for morphing
+        const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+        const basePositions = new Float32Array(PARTICLE_COUNT * 3);
+        
+        // Store specific target colors (used for the flag)
+        const targetColors = new Float32Array(PARTICLE_COUNT * 3);
+        const useTargetColor = new Array(PARTICLE_COUNT).fill(false); // Helper to toggle modes
+
+        const colorObj = new THREE.Color();
+
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 10;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 10;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+            
+            colors[i * 3] = 1;
+            colors[i * 3 + 1] = 1;
+            colors[i * 3 + 2] = 1;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const material = new THREE.PointsMaterial({
+            size: 0.18,
+            vertexColors: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // --- 3. Shape Generators ---
+        
+        function getSpherePoint(i) {
+            const r = 10;
+            const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
+            const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
+            return {
+                x: r * Math.cos(theta) * Math.sin(phi),
+                y: r * Math.sin(theta) * Math.sin(phi),
+                z: r * Math.cos(phi)
+            };
+        }
+
+        function getHeartPoint(i) {
+            const t = (i / PARTICLE_COUNT) * Math.PI * 2;
+            const r = 0.5; 
+            const x = 16 * Math.pow(Math.sin(t), 3);
+            const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+            const z = (Math.random() - 0.5) * 5; 
+            return { x: x * r, y: y * r, z: z };
+        }
+
+        function getSaturnPoint(i) {
+            const ratio = 0.7;
+            if (i < PARTICLE_COUNT * ratio) {
+                const p = getSpherePoint(i);
+                return { x: p.x * 0.6, y: p.y * 0.6, z: p.z * 0.6 };
+            } else {
+                const angle = i * 0.1;
+                const radius = 10 + Math.random() * 4;
+                return {
+                    x: Math.cos(angle) * radius,
+                    y: (Math.random() - 0.5) * 0.5,
+                    z: Math.sin(angle) * radius
+                };
+            }
+        }
+
+        // --- NEW: Bangladesh Flag Shape ---
+        function getFlagPoint(i) {
+            // Flag Aspect Ratio 10:6
+            const width = 22;
+            const height = 13.2;
+            
+            // Random distribution within rectangle
+            const x = (Math.random() - 0.5) * width;
+            const y = (Math.random() - 0.5) * height;
+            // Slight depth to make it look like a cloud of particles rather than a 2D plane
+            const z = (Math.random() - 0.5) * 2; 
+
+            return { x, y, z };
+        }
+
+        const shapes = [
+            { name: "Sphere", func: getSpherePoint },
+            { name: "Bangladesh Flag", func: getFlagPoint }, // Added here
+            { name: "Heart", func: getHeartPoint },
+            { name: "Saturn", func: getSaturnPoint },
+        ];
+
+        let currentShapeIndex = 0;
+        let isFlagMode = false;
+
+        function setShape(index) {
+            const shapeObj = shapes[index];
+            document.getElementById('shape-name').innerText = shapeObj.name;
+            isFlagMode = (shapeObj.name === "Bangladesh Flag");
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const p = shapeObj.func(i);
+                targetPositions[i * 3] = p.x;
+                targetPositions[i * 3 + 1] = p.y;
+                targetPositions[i * 3 + 2] = p.z;
+
+                // Pre-calculate colors if we are in Flag Mode
+                if (isFlagMode) {
+                    // Bangladesh Flag Logic
+                    // Red Circle Offset slightly left: (x + offset)^2 + y^2 < r^2
+                    // Radius roughly 20% of width? Let's say radius 4.5
+                    const offsetX = 1.5; 
+                    const dist = Math.sqrt(Math.pow(p.x + offsetX, 2) + Math.pow(p.y, 2));
+                    
+                    if (dist < 4.2) {
+                        // Red (#f42a41)
+                        targetColors[i*3] = 0.95;
+                        targetColors[i*3+1] = 0.16;
+                        targetColors[i*3+2] = 0.25;
+                    } else {
+                        // Bottle Green (#006a4e)
+                        targetColors[i*3] = 0.0;
+                        targetColors[i*3+1] = 0.42;
+                        targetColors[i*3+2] = 0.31;
+                    }
+                }
+            }
+        }
+
+        // Initialize
+        setShape(0);
+
+        // --- 4. Animation Variables & Logic ---
+        
+        let expansion = 1.0;
+        let targetExpansion = 1.0;
+        let rotationX = 0;
+        let rotationY = 0;
+        let hue = 0.0;
+        let lastGestureTime = 0;
+        const morphSpeed = 0.08;
+        const colorSpeed = 0.05;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            expansion += (targetExpansion - expansion) * 0.1;
+
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+
+            // Hand-based Hue Color Object
+            colorObj.setHSL(hue, 0.8, 0.6);
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const ix = i * 3;
+                const iy = i * 3 + 1;
+                const iz = i * 3 + 2;
+
+                // 1. Position Morphing
+                basePositions[ix] += (targetPositions[ix] - basePositions[ix]) * morphSpeed;
+                basePositions[iy] += (targetPositions[iy] - basePositions[iy]) * morphSpeed;
+                basePositions[iz] += (targetPositions[iz] - basePositions[iz]) * morphSpeed;
+
+                const noise = (Math.random() - 0.5) * (expansion - 1.0) * 0.5;
+                
+                posAttr.array[ix] = basePositions[ix] * expansion + noise;
+                posAttr.array[iy] = basePositions[iy] * expansion + noise;
+                posAttr.array[iz] = basePositions[iz] * expansion + noise;
+
+                // 2. Color Logic
+                let r, g, b;
+
+                if (isFlagMode) {
+                    // Use the pre-calculated flag colors
+                    r = targetColors[ix];
+                    g = targetColors[iy];
+                    b = targetColors[iz];
+                } else {
+                    // Use Hand Hue
+                    r = colorObj.r;
+                    g = colorObj.g;
+                    b = colorObj.b;
+                }
+
+                // Smoothly transition color
+                colAttr.array[ix] += (r - colAttr.array[ix]) * colorSpeed;
+                colAttr.array[iy] += (g - colAttr.array[iy]) * colorSpeed;
+                colAttr.array[iz] += (b - colAttr.array[iz]) * colorSpeed;
+            }
+
+            posAttr.needsUpdate = true;
+            colAttr.needsUpdate = true;
+
+            // Rotation
+            particles.rotation.y += 0.002 + rotationX; 
+            particles.rotation.x += rotationY;
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // --- 5. MediaPipe Integration ---
+        const loadScript = (src) => {
+            return new Promise((resolve) => {
+                const s = document.createElement('script');
+                s.src = src;
+                s.onload = resolve;
+                document.body.appendChild(s);
+            });
+        };
+
+        Promise.all([
+            loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"),
+            loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"),
+            loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"),
+            loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js")
+        ]).then(() => {
+            initMediaPipe();
+        });
+
+        function initMediaPipe() {
+            const videoElement = document.getElementById('video-element');
+            const hands = new window.Hands({locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }});
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onHandsResults);
+
+            const cameraUtils = new window.Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({image: videoElement});
+                },
+                width: 640,
+                height: 480
+            });
+            cameraUtils.start();
+            
+            document.getElementById('loading').style.opacity = 0;
+            setTimeout(() => document.getElementById('loading').remove(), 500);
+        }
+
+        function onHandsResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+
+                const x = 1.0 - landmarks[0].x; 
+                const y = landmarks[0].y;
+
+                // Only update hue if NOT in flag mode (Flag has fixed colors)
+                if(!isFlagMode) hue = x; 
+                
+                rotationY = (y - 0.5) * 0.05; 
+                rotationX = (x - 0.5) * 0.05;
+
+                const thumbTip = landmarks[4];
+                const indexTip = landmarks[8];
+                
+                const distance = Math.sqrt(
+                    Math.pow(thumbTip.x - indexTip.x, 2) +
+                    Math.pow(thumbTip.y - indexTip.y, 2)
+                );
+
+                const pinchFactor = Math.min(Math.max((distance - 0.02) * 8, 0), 2.5);
+                targetExpansion = 0.8 + pinchFactor;
+
+                // Gesture: Peace Sign
+                const indexUp = landmarks[8].y < landmarks[6].y;
+                const middleUp = landmarks[12].y < landmarks[10].y;
+                const ringDown = landmarks[16].y > landmarks[14].y;
+                const pinkyDown = landmarks[20].y > landmarks[18].y;
+
+                if (indexUp && middleUp && ringDown && pinkyDown) {
+                    const now = Date.now();
+                    if (now - lastGestureTime > 1500) { 
+                        currentShapeIndex = (currentShapeIndex + 1) % shapes.length;
+                        setShape(currentShapeIndex);
+                        lastGestureTime = now;
+                        targetExpansion = 2.0; 
+                    }
+                }
+            } else {
+                targetExpansion = 1.0;
+                rotationX = 0;
+                rotationY = 0;
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
